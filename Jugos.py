@@ -274,7 +274,6 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
       fontsize="8.5",
   )
 
-  # Formateador con desglose de Flujo Másico Líquido (Agua) y Sólido
   def fmt_lbl(nombre_corr):
     d = c[nombre_corr]
     m_solidos = d["m"] * (d["brix"] / 100.0)
@@ -311,7 +310,15 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
       label=f" Jugo Clarificado\n{fmt_lbl('Jugo Prensa')}",
       color="#2b6cb0",
   )
-  dot.edge("EVAP1", "SPLIT", label=" Mezcla Concentrada I", color="#2b6cb0")
+
+  # FLECHA CORREGIDA AQUÍ:
+  dot.edge(
+      "EVAP1",
+      "SPLIT",
+      label=f" Mezcla Concentrada I\n{fmt_lbl('Jugo Salida Evap 1')}",
+      color="#2b6cb0",
+  )
+
   dot.edge(
       "SPLIT",
       "EVAP2",
@@ -333,7 +340,6 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
   )
   dot.edge("MEZCLA", "OUT", color="#2f855a", penwidth="2.5")
 
-  # Nodos de Vapor (Solo tienen flujo líquido/agua evaporada)
   dot.node(
       "VAP1",
       f"VAPOR GENERADO 1\n 💧 Vapor: {c['Vapor Evap 1']['m']:,.1f} kg/h\n 🧊"
