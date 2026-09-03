@@ -503,8 +503,8 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1_agua):
       "SPLITTER",
       "EVAP2",
       label=(
-          f" Jugo a Evap 2 ({pct_e2_linea:.0f}%)\n{fmt_lbl('Jugo a Evaporador"
-          " 2')}"
+          f" Jugo a Evap 2 ({pct_e2_linea:.0f}%)\n"
+          f"{fmt_lbl('Jugo a Evaporador 2')}"
       ),
       color="#2b6cb0",
   )
