@@ -8,8 +8,8 @@ st.set_page_config(
 
 st.title("🏭 Auditoría Térmica y Balance de Materia/Energía")
 st.markdown(
-    "Simulador Avanzado de Planta de Concentración de Jugo con Parámetros de"
-    " Operación Configurables."
+    "Simulador Avanzado de Planta de Concentración de Jugo con Control de"
+    " Bypass / Cut-Back."
 )
 
 # --- 1. BARRA LATERAL: CONFIGURACIÓN POR ETAPAS ---
@@ -25,12 +25,15 @@ w_bag = st.sidebar.slider(
     "Retención de Bagazo en Prensa (%):", 5.0, 20.0, 10.0, 0.5
 )
 
-st.sidebar.header("🔀 3. Divisor de Flujo (Bypass / Cut-back)")
+st.sidebar.header("🔀 3. Divisor Principal & Bypass")
 w_bp = st.sidebar.slider(
-    "Porcentaje de Desvío/Bypass (% del jugo):", 0.0, 50.0, 30.0, 1.0
+    "Bypass Generado en Divisor (%):", 0.0, 50.0, 30.0, 1.0
 )
 
 st.sidebar.header("🔥 4. Sistema de Evaporación")
+w_brix_e2 = st.sidebar.number_input(
+    "Concentración Salida Evaporador 2 (°Brix):", value=68.0, step=1.0
+)
 w_T_evap = st.sidebar.number_input(
     "Temp. Operación Evaporadores (°C):", value=100.0, step=1.0
 )
@@ -52,7 +55,7 @@ lambda_vap_custom = st.sidebar.number_input(
 )
 
 
-# --- 2. LÓGICA DE CÁLCULO CONFIGURABLE ---
+# --- 2. LÓGICA DE CÁLCULO RIGUROSA ---
 def ejecutar_balance_avanzado(
     m_prod_final,
     brix_in,
@@ -62,6 +65,7 @@ def ejecutar_balance_avanzado(
     T_evap,
     pct_evap1,
     lambda_vap,
+    brix_evap2_target,
 ):
   T_ref, T_in = 0.0, 25.0
   cp_agua = 4.184
@@ -69,35 +73,51 @@ def ejecutar_balance_avanzado(
   def calcular_cp(brix):
     return 4.184 * (1.0 - 0.0054 * brix)
 
-  # Balance Global de Sólidos Solubles
-  solidos_totales = m_prod_final * (brix_obj / 100.0)
-  m_jugo = solidos_totales / (brix_in / 100.0)
+  # Validación de Brix
+  if brix_evap2_target <= brix_obj:
+    brix_evap2_target = brix_obj + 1.0
 
-  # Extracción
+  # 1. Balance en Mezclador Final (Mixer)
+  # m_evap2_out * brix_evap2_target + m_bp_mix * brix_in = m_prod_final * brix_obj
+  # m_evap2_out + m_bp_mix = m_prod_final
+  m_bp_mix = (
+      m_prod_final
+      * (brix_evap2_target - brix_obj)
+      / (brix_evap2_target - brix_in)
+  )
+  m_evap2_out = m_prod_final - m_bp_mix
+
+  solidos_evap = m_evap2_out * (brix_evap2_target / 100.0)
+  m_evap_in = solidos_evap / (brix_in / 100.0)
+
+  # 2. Balance en Divisor Principal y Control de Bypass
+  if pct_bp >= 100.0:
+    pct_bp = 99.0
+
+  m_jugo = m_evap_in / (1.0 - (pct_bp / 100.0))
+  m_bp_total = m_jugo * (pct_bp / 100.0)
+
+  # Garantizar que el bypass generado cubra al menos lo necesario para la mezcla
+  if m_bp_total < m_bp_mix:
+    m_bp_total = m_bp_mix
+    m_jugo = m_evap_in + m_bp_total
+    pct_bp = (m_bp_total / m_jugo) * 100.0
+
+  m_bp_excedente = m_bp_total - m_bp_mix
+
+  # 3. Balance de Extracción / Fruta Fresca
   m_fruta = m_jugo / (1.0 - (pct_bag / 100.0))
   m_bagazo = m_fruta * (pct_bag / 100.0)
 
-  brix_jugo = brix_in
-  m_agua_total_evaporada = m_jugo - m_prod_final
-
-  # Divisor de Flujo (Bypass)
-  m_bypass = m_jugo * (pct_bp / 100.0)
-  m_evap1_in = m_jugo - m_bypass
-
-  # Evaporación Configurable
+  # 4. Balance en Evaporadores
+  m_agua_total_evaporada = m_evap_in - m_evap2_out
   pct_evap2 = 100.0 - pct_evap1
+
   m_vap1 = m_agua_total_evaporada * (pct_evap1 / 100.0)
   m_vap2 = m_agua_total_evaporada * (pct_evap2 / 100.0)
 
-  m_evap1_out = m_evap1_in - m_vap1
-  brix_evap1_out = (
-      (m_evap1_in * (brix_jugo / 100.0)) / m_evap1_out
-  ) * 100.0
-
-  m_evap2_out = m_evap1_out - m_vap2
-  brix_evap2_out = (
-      (m_evap1_in * (brix_jugo / 100.0)) / m_evap2_out
-  ) * 100.0
+  m_evap1_out = m_evap_in - m_vap1
+  brix_evap1_out = (solidos_evap / m_evap1_out) * 100.0
 
   corrientes = [
       (
@@ -117,28 +137,44 @@ def ejecutar_balance_avanzado(
           "Separación Mecánica (Isotérmico, Q≈0)",
       ),
       (
-          "Jugo Prensa",
+          "Jugo Prensa Total",
           m_jugo,
-          brix_jugo,
+          brix_in,
           T_in,
           False,
           "Separación Mecánica (Isotérmico, Q≈0)",
       ),
       (
-          "Jugo a Evap 1",
-          m_evap1_in,
-          brix_jugo,
+          "Jugo a Evaporador 1",
+          m_evap_in,
+          brix_in,
           T_in,
           False,
-          "División de Flujo / Divisor Adiabático (Q=0)",
+          "División Principal de Flujo (Q=0)",
       ),
       (
-          "Bypass Mezclado",
-          m_bypass,
-          brix_jugo,
+          "Bypass Total Generado",
+          m_bp_total,
+          brix_in,
           T_in,
           False,
-          "Bypass Ajustado a Mezcla Final (Q=0)",
+          "División Principal de Flujo (Q=0)",
+      ),
+      (
+          "Bypass Ajustado a Mezcla",
+          m_bp_mix,
+          brix_in,
+          T_in,
+          False,
+          "Control de Cut-Back a Mezclador (Q=0)",
+      ),
+      (
+          "Bypass Excedente / Otro Proceso",
+          m_bp_excedente,
+          brix_in,
+          T_in,
+          False,
+          "Desvío a Almacenamiento/Otros (Q=0)",
       ),
       (
           "Vapor Evap 1",
@@ -167,7 +203,7 @@ def ejecutar_balance_avanzado(
       (
           "Jugo Salida Evap 2",
           m_evap2_out,
-          brix_evap2_out,
+          brix_evap2_target,
           T_evap,
           False,
           "Transferencia Térmica No Adiabática (Q > 0)",
@@ -178,7 +214,7 @@ def ejecutar_balance_avanzado(
           brix_obj,
           60.0,
           False,
-          "Mezclado Ajustado Adiabático (Garantiza °Brix)",
+          "Mezclado Adiabático (Garantiza °Brix)",
       ),
   ]
 
@@ -210,13 +246,13 @@ def ejecutar_balance_avanzado(
 
   df_resultados = pd.DataFrame(filas_tabla)
 
-  # Balances energéticos
-  h_in_e1 = calcular_cp(brix_jugo) * T_in
+  # Balances energéticos en Evaporadores
+  h_in_e1 = calcular_cp(brix_in) * T_in
   h_out_e1 = calcular_cp(brix_evap1_out) * T_evap
   h_v1 = (cp_agua * T_evap) + lambda_vap
-  Q_evap1 = (m_evap1_out * h_out_e1) + (m_vap1 * h_v1) - (m_evap1_in * h_in_e1)
+  Q_evap1 = (m_evap1_out * h_out_e1) + (m_vap1 * h_v1) - (m_evap_in * h_in_e1)
 
-  h_out_e2 = calcular_cp(brix_evap2_out) * T_evap
+  h_out_e2 = calcular_cp(brix_evap2_target) * T_evap
   h_v2 = (cp_agua * T_evap) + lambda_vap
   Q_evap2 = (m_evap2_out * h_out_e2) + (m_vap2 * h_v2) - (m_evap1_out * h_out_e1)
 
@@ -246,6 +282,7 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
       fontname="Helvetica",
   )
 
+  # Nodos principales de proceso
   dot.attr(
       "node",
       shape="box",
@@ -258,13 +295,19 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
   dot.node("MOLINO", "MOLINO Y PRENSA\n(Sep. Mecánica / Isotérmico)")
   dot.node("EVAP1", f"EVAPORADOR 1\n(Carga: {pct_e1}%)")
   dot.node(
-      "SPLIT",
-      "DIVISOR / DESVÍO\n(Divisor Adiabático)",
+      "DIV_PRINCIPAL",
+      f"DIVISOR PRINCIPAL\n(Bypass: {pct_bp}%)",
       fillcolor="#2b6cb0",
       shape="diamond",
   )
   dot.node("EVAP2", f"EVAPORADOR 2\n(Carga: {100.0 - pct_e1:.1f}%)")
-  dot.node("MEZCLA", "MEZCLADOR FINAL\n(Ajuste para °Brix Objetivo)")
+  dot.node(
+      "CONTROL_BP",
+      "CONTROL DE BYPASS\n(Ajuste de Cut-Back)",
+      fillcolor="#2b6cb0",
+      shape="diamond",
+  )
+  dot.node("MEZCLA", "MEZCLADOR FINAL\n(Mezclado Adiabático)")
 
   dot.attr(
       "node",
@@ -286,136 +329,3 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
         f" 💧 Liq (Agua): {m_liquido:,.1f} kg/h\n"
         f" 🧊 Sólidos: {m_solidos:,.1f} kg/h\n"
         f" T: {d['T']:.0f}°C | H: {d['H']:,.0f} kJ/h"
-    )
-
-  dot.node(
-      "IN",
-      f"ENTRADA: Fruta Requerida\n{fmt_lbl('Fruta Fresca Requerida')}",
-      fillcolor="#c6f6d5",
-  )
-  dot.node(
-      "BAGAZO",
-      f"SALIDA: Torta Bagazo\n{fmt_lbl('Torta Bagazo')}",
-      fillcolor="#feebc8",
-  )
-  dot.node(
-      "OUT",
-      f"PRODUCTO REQUERIDO\n{fmt_lbl('Producto Final Requerido')}",
-      fillcolor="#9ae6b4",
-      shape="doublerectangle",
-  )
-
-  dot.edge("IN", "MOLINO", color="#2f855a", penwidth="2")
-  dot.edge("MOLINO", "BAGAZO", label=" Bagazo", color="#dd6b20")
-  dot.edge(
-      "MOLINO",
-      "EVAP1",
-      label=f" Jugo Clarificado\n{fmt_lbl('Jugo Prensa')}",
-      color="#2b6cb0",
-  )
-  dot.edge(
-      "EVAP1",
-      "SPLIT",
-      label=f" Mezcla Concentrada I\n{fmt_lbl('Jugo Salida Evap 1')}",
-      color="#2b6cb0",
-  )
-  dot.edge(
-      "SPLIT",
-      "EVAP2",
-      label=f" Al Evap 2\n{fmt_lbl('Jugo a Evap 1')}",
-      color="#2b6cb0",
-  )
-
-  # Etiqueta aclaratoria en la línea de Bypass
-  dot.edge(
-      "SPLIT",
-      "MEZCLA",
-      label=(
-          f" Bypass Requerido ({pct_bp}%)\n"
-          f" (Para Control de °Brix)\n"
-          f"{fmt_lbl('Bypass Mezclado')}"
-      ),
-      style="dashed",
-      color="#dd6b20",
-  )
-
-  dot.edge(
-      "EVAP2",
-      "MEZCLA",
-      label=f" Salida Evap 2\n{fmt_lbl('Jugo Salida Evap 2')}",
-      color="#2b6cb0",
-  )
-  dot.edge("MEZCLA", "OUT", color="#2f855a", penwidth="2.5")
-
-  # Nodos de Vapor
-  dot.node(
-      "VAP1",
-      f"VAPOR GENERADO 1\n 💧 Vapor: {c['Vapor Evap 1']['m']:,.1f} kg/h\n 🧊"
-      " Sólidos: 0.0 kg/h",
-      fillcolor="#e2e8f0",
-      shape="note",
-  )
-  dot.node(
-      "VAP2",
-      f"VAPOR GENERADO 2\n 💧 Vapor: {c['Vapor Evap 2']['m']:,.1f} kg/h\n 🧊"
-      " Sólidos: 0.0 kg/h",
-      fillcolor="#e2e8f0",
-      shape="note",
-  )
-  dot.edge("EVAP1", "VAP1", style="dotted", color="#718096")
-  dot.edge("EVAP2", "VAP2", style="dotted", color="#718096")
-
-  dot.node(
-      "Q1",
-      f"Q1 = {res['Q_Evap1']:,.0f} kJ/h",
-      fillcolor="#fed7d7",
-      fontcolor="#9b2c2c",
-      shape="oval",
-  )
-  dot.node(
-      "Q2",
-      f"Q2 = {res['Q_Evap2']:,.0f} kJ/h",
-      fillcolor="#fed7d7",
-      fontcolor="#9b2c2c",
-      shape="oval",
-  )
-  dot.node(
-      "CALDERA",
-      f"CALDERA CENTRAL\nQ Total: {res['Q_Total']:,.0f} kJ/h\nVapor:"
-      f" {res['Vapor_Caldera']:,.1f} kg/h",
-      fillcolor="#e53e3e",
-      fontcolor="white",
-      shape="component",
-  )
-
-  dot.edge("CALDERA", "Q1", style="dashed", color="#e53e3e")
-  dot.edge("CALDERA", "Q2", style="dashed", color="#e53e3e")
-  dot.edge("Q1", "EVAP1", color="#e53e3e")
-  dot.edge("Q2", "EVAP2", color="#e53e3e")
-
-  return dot
-
-
-# --- 4. RENDERING PRINCIPAL ---
-df, res = ejecutar_balance_avanzado(
-    w_m_out,
-    w_bin,
-    w_bout,
-    w_bp,
-    w_bag,
-    w_T_evap,
-    dist_evap1,
-    lambda_vap_custom,
-)
-
-col1, col2, col3 = st.columns(3)
-col1.metric("Fruta Fresca Requerida", f"{res['Fruta_Requerida']:,.1f} kg/h")
-col2.metric("Carga Térmica Total (Q)", f"{res['Q_Total']:,.0f} kJ/h")
-col3.metric("Consumo Vapor Caldera", f"{res['Vapor_Caldera']:,.1f} kg/h")
-
-st.subheader("📋 Tabla de Auditoría de Materia, Energía y Procesos")
-st.dataframe(df, use_container_width=True)
-
-st.subheader("🗺️ Diagrama de Flujo de Proceso (PFD)")
-figura = generar_diagrama_detallado(res, w_bp, dist_evap1)
-st.graphviz_chart(figura, use_container_width=True)
