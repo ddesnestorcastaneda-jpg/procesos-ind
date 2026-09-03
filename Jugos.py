@@ -1,3 +1,6 @@
+import streamlit as st
+
+# --- Lógica de la interfaz ---
 st.sidebar.header("🍇 Selección de Fruta / Materia Prima")
 fruta_sel = st.sidebar.selectbox(
     "Selecciona el tipo de fruta:",
@@ -26,9 +29,7 @@ w_bout = st.sidebar.number_input(
     "Brix Objetivo Final (°Brix):", value=default_brix_obj, step=1.0
 )
 
-# 🚨 VALIDACIÓN DE INCONSISTENCIA Y ALERTA FÍSICA 🚨
-# Se activa si los Brix de entrada son mayores o iguales al objetivo final (dilución imposible)
-# o si se introducen valores imposibles (> 100°Brix o <= 0°Brix)
+# 🚨 ALERTA DE INCONSISTENCIA FÍSICA 🚨
 if w_bin >= w_bout or w_bin <= 0 or w_bout > 100:
   st.error(
       "🌌 💥 **¡ALERTA DE INCONSISTENCIA GRAVITACIONAL!**\n\n"
