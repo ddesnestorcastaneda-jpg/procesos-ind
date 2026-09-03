@@ -329,3 +329,159 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
         f" 💧 Liq (Agua): {m_liquido:,.1f} kg/h\n"
         f" 🧊 Sólidos: {m_solidos:,.1f} kg/h\n"
         f" T: {d['T']:.0f}°C | H: {d['H']:,.0f} kJ/h"
+    )
+
+  # Nodos de Entrada, Salida y Excedente
+  dot.node(
+      "IN",
+      f"ENTRADA: Fruta Requerida\n{fmt_lbl('Fruta Fresca Requerida')}",
+      fillcolor="#c6f6d5",
+  )
+  dot.node(
+      "BAGAZO",
+      f"SALIDA: Torta Bagazo\n{fmt_lbl('Torta Bagazo')}",
+      fillcolor="#feebc8",
+  )
+  dot.node(
+      "EXCEDENTE",
+      (
+          "EXCEDENTE DE BYPASS\n(Otro Proceso / Almacenamiento)\n"
+          f"{fmt_lbl('Bypass Excedente / Otro Proceso')}"
+      ),
+      fillcolor="#feebc8",
+  )
+  dot.node(
+      "OUT",
+      f"PRODUCTO REQUERIDO\n{fmt_lbl('Producto Final Requerido')}",
+      fillcolor="#9ae6b4",
+      shape="doublerectangle",
+  )
+
+  # Conexiones principales de flujo
+  dot.edge("IN", "MOLINO", color="#2f855a", penwidth="2")
+  dot.edge("MOLINO", "BAGAZO", label=" Bagazo", color="#dd6b20")
+  dot.edge(
+      "MOLINO",
+      "DIV_PRINCIPAL",
+      label=f" Jugo Prensa\n{fmt_lbl('Jugo Prensa Total')}",
+      color="#2b6cb0",
+  )
+
+  # Rama de Evaporación
+  dot.edge(
+      "DIV_PRINCIPAL",
+      "EVAP1",
+      label=f" A Evaporación\n{fmt_lbl('Jugo a Evaporador 1')}",
+      color="#2b6cb0",
+  )
+  dot.edge(
+      "EVAP1",
+      "EVAP2",
+      label=f" Jugo Conc. I\n{fmt_lbl('Jugo Salida Evap 1')}",
+      color="#2b6cb0",
+  )
+  dot.edge(
+      "EVAP2",
+      "MEZCLA",
+      label=f" Jugo Conc. II\n{fmt_lbl('Jugo Salida Evap 2')}",
+      color="#2b6cb0",
+  )
+
+  # Rama de Bypass y Control
+  dot.edge(
+      "DIV_PRINCIPAL",
+      "CONTROL_BP",
+      label=f" Bypass Total ({pct_bp}%)\n{fmt_lbl('Bypass Total Generado')}",
+      style="dashed",
+      color="#dd6b20",
+  )
+  dot.edge(
+      "CONTROL_BP",
+      "MEZCLA",
+      label=f" Cut-back Requerido\n{fmt_lbl('Bypass Ajustado a Mezcla')}",
+      color="#2b6cb0",
+  )
+  dot.edge(
+      "CONTROL_BP",
+      "EXCEDENTE",
+      label=" Excedente Desviado",
+      style="dashed",
+      color="#dd6b20",
+  )
+
+  dot.edge("MEZCLA", "OUT", color="#2f855a", penwidth="2.5")
+
+  # Nodos de Vapor Generado
+  dot.node(
+      "VAP1",
+      f"VAPOR GENERADO 1\n 💧 Vapor: {c['Vapor Evap 1']['m']:,.1f} kg/h\n 🧊"
+      " Sólidos: 0.0 kg/h",
+      fillcolor="#e2e8f0",
+      shape="note",
+  )
+  dot.node(
+      "VAP2",
+      f"VAPOR GENERADO 2\n 💧 Vapor: {c['Vapor Evap 2']['m']:,.1f} kg/h\n 🧊"
+      " Sólidos: 0.0 kg/h",
+      fillcolor="#e2e8f0",
+      shape="note",
+  )
+  dot.edge("EVAP1", "VAP1", style="dotted", color="#718096")
+  dot.edge("EVAP2", "VAP2", style="dotted", color="#718096")
+
+  # Servicios Térmicos y Caldera
+  dot.node(
+      "Q1",
+      f"Q1 = {res['Q_Evap1']:,.0f} kJ/h",
+      fillcolor="#fed7d7",
+      fontcolor="#9b2c2c",
+      shape="oval",
+  )
+  dot.node(
+      "Q2",
+      f"Q2 = {res['Q_Evap2']:,.0f} kJ/h",
+      fillcolor="#fed7d7",
+      fontcolor="#9b2c2c",
+      shape="oval",
+  )
+  dot.node(
+      "CALDERA",
+      f"CALDERA CENTRAL\nQ Total: {res['Q_Total']:,.0f} kJ/h\nVapor:"
+      f" {res['Vapor_Caldera']:,.1f} kg/h",
+      fillcolor="#e53e3e",
+      fontcolor="white",
+      shape="component",
+  )
+
+  dot.edge("CALDERA", "Q1", style="dashed", color="#e53e3e")
+  dot.edge("CALDERA", "Q2", style="dashed", color="#e53e3e")
+  dot.edge("Q1", "EVAP1", color="#e53e3e")
+  dot.edge("Q2", "EVAP2", color="#e53e3e")
+
+  return dot
+
+
+# --- 4. RENDERING PRINCIPAL ---
+df, res = ejecutar_balance_avanzado(
+    w_m_out,
+    w_bin,
+    w_bout,
+    w_bp,
+    w_bag,
+    w_T_evap,
+    dist_evap1,
+    lambda_vap_custom,
+    w_brix_e2,
+)
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Fruta Fresca Requerida", f"{res['Fruta_Requerida']:,.1f} kg/h")
+col2.metric("Carga Térmica Total (Q)", f"{res['Q_Total']:,.0f} kJ/h")
+col3.metric("Consumo Vapor Caldera", f"{res['Vapor_Caldera']:,.1f} kg/h")
+
+st.subheader("📋 Tabla de Auditoría de Materia, Energía y Procesos")
+st.dataframe(df, use_container_width=True)
+
+st.subheader("🗺️ Diagrama de Flujo de Proceso (PFD)")
+figura = generar_diagrama_detallado(res, w_bp, dist_evap1)
+st.graphviz_chart(figura, use_container_width=True)
