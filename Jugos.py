@@ -2,19 +2,21 @@ import graphviz
 import pandas as pd
 import streamlit as st
 
-# Configuración de la página
 st.set_page_config(
     page_title="Auditoría de Proceso PFD", page_icon="🏭", layout="wide"
 )
 
 st.title("🏭 Auditoría Térmica y Balance de Materia/Energía")
 st.markdown(
-    "Simulador de Planta de Concentración de Jugo para Prácticas de Ingeniería."
+    "Simulador de Planta de Concentración de Jugo para Prácticas de Ingeniería"
+    " (Cálculo basado en Producto Final)."
 )
 
 
-# --- 1. LÓGICA DE CÁLCULO ---
-def ejecutar_balance_completo(m_fruta, brix_in, brix_obj, pct_bp, pct_bag):
+# --- 1. LÓGICA DE CÁLCULO INVERSO ---
+def ejecutar_balance_desde_producto(
+    m_prod_final, brix_in, brix_obj, pct_bp, pct_bag
+):
   T_ref, T_in, T_evap = 0.0, 25.0, 100.0
   lambda_vap = 2257.0
   cp_agua = 4.184
@@ -22,12 +24,15 @@ def ejecutar_balance_completo(m_fruta, brix_in, brix_obj, pct_bp, pct_bag):
   def calcular_cp(brix):
     return 4.184 * (1.0 - 0.0054 * brix)
 
-  m_bagazo = m_fruta * (pct_bag / 100.0)
-  m_jugo = m_fruta - m_bagazo
-  brix_jugo = brix_in
+  # Balance Global de Sólidos Solubles
+  solidos_totales = m_prod_final * (brix_obj / 100.0)
+  m_jugo = solidos_totales / (brix_in / 100.0)
 
-  solidos_totales = m_jugo * (brix_jugo / 100.0)
-  m_prod_final = solidos_totales / (brix_obj / 100.0)
+  # Cálculo de Fruta Fresca Requerida
+  m_fruta = m_jugo / (1.0 - (pct_bag / 100.0))
+  m_bagazo = m_fruta * (pct_bag / 100.0)
+
+  brix_jugo = brix_in
   m_agua_total_evaporada = m_jugo - m_prod_final
 
   m_bypass = m_jugo * (pct_bp / 100.0)
@@ -48,12 +53,12 @@ def ejecutar_balance_completo(m_fruta, brix_in, brix_obj, pct_bp, pct_bag):
 
   corrientes = [
       (
-          "Fruta Fresca",
+          "Fruta Fresca Requerida",
           m_fruta,
           brix_in,
           T_in,
           False,
-          "Entrada Isostática / Referencia",
+          "Entrada Isostática / Calculada",
       ),
       (
           "Torta Bagazo",
@@ -120,7 +125,7 @@ def ejecutar_balance_completo(m_fruta, brix_in, brix_obj, pct_bp, pct_bag):
           "Transferencia Térmica No Adiabática (Q > 0)",
       ),
       (
-          "Producto Final",
+          "Producto Final Requerido",
           m_prod_final,
           brix_obj,
           60.0,
@@ -146,7 +151,7 @@ def ejecutar_balance_completo(m_fruta, brix_in, brix_obj, pct_bp, pct_bag):
     }
     filas_tabla.append({
         "Corriente / Etapa": nombre,
-        "Flujo Masico (kg/h)": round(m, 2),
+        "Flujo Másico (kg/h)": round(m, 2),
         "Sólidos (°Brix)": round(brix, 2),
         "Temp (°C)": round(T, 1),
         "Cp (kJ/kg·°C)": round(cp, 3),
@@ -175,11 +180,12 @@ def ejecutar_balance_completo(m_fruta, brix_in, brix_obj, pct_bp, pct_bag):
       "Q_Total": Q_total,
       "Vapor_Caldera": m_vapor_caldera,
       "corrientes": dict_corrientes,
+      "Fruta_Requerida": m_fruta,
   }
   return df_resultados, res_energia
 
 
-def generar_diagrama_detallado(m_fruta, brix_in, brix_obj, pct_bp, res):
+def generar_diagrama_detallado(res, pct_bp):
   c = res["corrientes"]
   dot = graphviz.Digraph(comment="PFD Detallado", format="png")
   dot.attr(
@@ -230,7 +236,7 @@ def generar_diagrama_detallado(m_fruta, brix_in, brix_obj, pct_bp, res):
 
   dot.node(
       "IN",
-      f"ENTRADA: Fruta Fresca\n{fmt_lbl('Fruta Fresca')}",
+      f"ENTRADA: Fruta Requerida\n{fmt_lbl('Fruta Fresca Requerida')}",
       fillcolor="#c6f6d5",
   )
   dot.node(
@@ -240,7 +246,7 @@ def generar_diagrama_detallado(m_fruta, brix_in, brix_obj, pct_bp, res):
   )
   dot.node(
       "OUT",
-      f"PRODUCTO FINAL\n{fmt_lbl('Producto Final')}",
+      f"PRODUCTO REQUERIDO\n{fmt_lbl('Producto Final Requerido')}",
       fillcolor="#9ae6b4",
       shape="doublerectangle",
   )
@@ -322,25 +328,28 @@ def generar_diagrama_detallado(m_fruta, brix_in, brix_obj, pct_bp, res):
 
 
 # --- 2. BARRA LATERAL (CONTROLES) ---
-st.sidebar.header("⚙️ Parámetros del Sistema")
-w_m = st.sidebar.number_input("Masa Fruta (kg/h):", value=25000.0, step=1000.0)
-w_bin = st.sidebar.number_input("Brix Fruta:", value=12.0, step=0.5)
-w_bout = st.sidebar.number_input("Brix Obj:", value=60.0, step=1.0)
+st.sidebar.header("⚙️ Requerimiento de Producción")
+w_m_out = st.sidebar.number_input(
+    "Producto Final Deseado (kg/h):", value=4500.0, step=500.0
+)
+w_bin = st.sidebar.number_input("Brix Fruta Fresca:", value=12.0, step=0.5)
+w_bout = st.sidebar.number_input("Brix Objetivo Final:", value=60.0, step=1.0)
 w_bp = st.sidebar.number_input("% Bypass:", value=30.0, step=5.0)
 w_bag = st.sidebar.number_input("% Bagazo:", value=10.0, step=1.0)
 
-# --- 3. RENDERING EN STREAMLIT ---
-df, res = ejecutar_balance_completo(w_m, w_bin, w_bout, w_bp, w_bag)
+# --- 3. RENDERING ---
+df, res = ejecutar_balance_desde_producto(
+    w_m_out, w_bin, w_bout, w_bp, w_bag
+)
 
-# Métricas rápidas arriba
 col1, col2, col3 = st.columns(3)
-col1.metric("Carga Térmica Total (Q)", f"{res['Q_Total']:,.0f} kJ/h")
-col2.metric("Consumo Vapor Caldera", f"{res['Vapor_Caldera']:,.1f} kg/h")
-col3.metric("Jugo Concentrado Final", f"{res['corrientes']['Producto Final']['m']:,.1f} kg/h")
+col1.metric("Fruta Fresca Necesaria", f"{res['Fruta_Requerida']:,.1f} kg/h")
+col2.metric("Carga Térmica Total (Q)", f"{res['Q_Total']:,.0f} kJ/h")
+col3.metric("Consumo Vapor Caldera", f"{res['Vapor_Caldera']:,.1f} kg/h")
 
 st.subheader("📋 Tabla de Auditoría de Materia, Energía y Procesos")
 st.dataframe(df, use_container_width=True)
 
 st.subheader("🗺️ Diagrama de Flujo de Proceso (PFD)")
-figura = generar_diagrama_detallado(w_m, w_bin, w_bout, w_bp, res)
+figura = generar_diagrama_detallado(res, w_bp)
 st.graphviz_chart(figura, use_container_width=True)
