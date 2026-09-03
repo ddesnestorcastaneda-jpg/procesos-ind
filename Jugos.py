@@ -25,8 +25,10 @@ w_bag = st.sidebar.slider(
     "Retención de Bagazo en Prensa (%):", 5.0, 20.0, 10.0, 0.5
 )
 
-st.sidebar.header("🔀 3. Divisor de Flujo (Splitter)")
-w_bp = st.sidebar.slider("Porcentaje de Bypass (%):", 0.0, 50.0, 30.0, 1.0)
+st.sidebar.header("🔀 3. Divisor de Flujo (Bypass / Cut-back)")
+w_bp = st.sidebar.slider(
+    "Porcentaje de Desvío/Bypass (% del jugo):", 0.0, 50.0, 30.0, 1.0
+)
 
 st.sidebar.header("🔥 4. Sistema de Evaporación")
 w_T_evap = st.sidebar.number_input(
@@ -78,7 +80,7 @@ def ejecutar_balance_avanzado(
   brix_jugo = brix_in
   m_agua_total_evaporada = m_jugo - m_prod_final
 
-  # Divisor
+  # Divisor de Flujo (Bypass)
   m_bypass = m_jugo * (pct_bp / 100.0)
   m_evap1_in = m_jugo - m_bypass
 
@@ -131,12 +133,12 @@ def ejecutar_balance_avanzado(
           "División de Flujo / Divisor Adiabático (Q=0)",
       ),
       (
-          "Bypass",
+          "Bypass Mezclado",
           m_bypass,
           brix_jugo,
           T_in,
           False,
-          "División de Flujo / Divisor Adiabático (Q=0)",
+          "Bypass Ajustado a Mezcla Final (Q=0)",
       ),
       (
           "Vapor Evap 1",
@@ -176,7 +178,7 @@ def ejecutar_balance_avanzado(
           brix_obj,
           60.0,
           False,
-          "Mezclado Adiabático (Q=0, Espontáneo)",
+          "Mezclado Ajustado Adiabático (Garantiza °Brix)",
       ),
   ]
 
@@ -257,12 +259,12 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
   dot.node("EVAP1", f"EVAPORADOR 1\n(Carga: {pct_e1}%)")
   dot.node(
       "SPLIT",
-      "DESVÍO\n(Divisor Adiabático)",
+      "DIVISOR / DESVÍO\n(Divisor Adiabático)",
       fillcolor="#2b6cb0",
       shape="diamond",
   )
   dot.node("EVAP2", f"EVAPORADOR 2\n(Carga: {100.0 - pct_e1:.1f}%)")
-  dot.node("MEZCLA", "MEZCLADOR FINAL\n(Mezclado Adiabático)")
+  dot.node("MEZCLA", "MEZCLADOR FINAL\n(Ajuste para °Brix Objetivo)")
 
   dot.attr(
       "node",
@@ -323,13 +325,20 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
       label=f" Al Evap 2\n{fmt_lbl('Jugo a Evap 1')}",
       color="#2b6cb0",
   )
+
+  # Etiqueta aclaratoria en la línea de Bypass
   dot.edge(
       "SPLIT",
       "MEZCLA",
-      label=f" Bypass ({pct_bp}%)\n{fmt_lbl('Bypass')}",
+      label=(
+          f" Bypass Requerido ({pct_bp}%)\n"
+          f" (Para Control de °Brix)\n"
+          f"{fmt_lbl('Bypass Mezclado')}"
+      ),
       style="dashed",
       color="#dd6b20",
   )
+
   dot.edge(
       "EVAP2",
       "MEZCLA",
