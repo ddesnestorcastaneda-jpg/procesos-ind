@@ -8,17 +8,60 @@ st.set_page_config(
 
 st.title("🏭 Auditoría Térmica y Balance de Materia/Energía")
 st.markdown(
-    "Simulador de Planta de Concentración de Jugo para Prácticas de Ingeniería"
-    " (Cálculo basado en Producto Final)."
+    "Simulador Avanzado de Planta de Concentración de Jugo con Parámetros de"
+    " Operación Configurables."
+)
+
+# --- BARRA LATERAL: CONFIGURACIÓN POR ETAPAS ---
+st.sidebar.header("🎯 1. Meta de Producción")
+w_m_out = st.sidebar.number_input(
+    "Producto Final Deseado (kg/h):", value=4500.0, step=500.0
+)
+w_bout = st.sidebar.number_input("Brix Objetivo Final:", value=60.0, step=1.0)
+
+st.sidebar.header("🥭 2. Materia Prima & Extracción")
+w_bin = st.sidebar.number_input("Brix Fruta Fresca:", value=12.0, step=0.5)
+w_bag = st.sidebar.slider(
+    "Retención de Bagazo en Prensa (%):", 5.0, 20.0, 10.0, 0.5
+)
+
+st.sidebar.header("🔀 3. Divisor de Flujo (Splitter)")
+w_bp = st.sidebar.slider("Porcentaje de Bypass (%):", 0.0, 50.0, 30.0, 1.0)
+
+st.sidebar.header("🔥 4. Sistema de Evaporación")
+w_T_evap = st.sidebar.number_input(
+    "Temp. Operación Evaporadores (°C):", value=100.0, step=1.0
+)
+dist_evap1 = st.sidebar.slider(
+    "Carga de Evaporación E1 (%):",
+    10.0,
+    90.0,
+    55.0,
+    1.0,
+    help="El resto se evaporará en el Evaporador 2",
+)
+
+st.sidebar.header("💨 5. Caldera de Suministro")
+lambda_vap_custom = st.sidebar.number_input(
+    "Calor Latente Vapor Caldera (kJ/kg):",
+    value=2257.0,
+    step=10.0,
+    help="Depende de la presión del vapor saturado entregado por la caldera.",
 )
 
 
-# --- 1. LÓGICA DE CÁLCULO INVERSO ---
-def ejecutar_balance_desde_producto(
-    m_prod_final, brix_in, brix_obj, pct_bp, pct_bag
+# --- LÓGICA DE CÁLCULO CONFIGURABLE ---
+def ejecutar_balance_avanzado(
+    m_prod_final,
+    brix_in,
+    brix_obj,
+    pct_bp,
+    pct_bag,
+    T_evap,
+    pct_evap1,
+    lambda_vap,
 ):
-  T_ref, T_in, T_evap = 0.0, 25.0, 100.0
-  lambda_vap = 2257.0
+  T_ref, T_in = 0.0, 25.0
   cp_agua = 4.184
 
   def calcular_cp(brix):
@@ -28,18 +71,21 @@ def ejecutar_balance_desde_producto(
   solidos_totales = m_prod_final * (brix_obj / 100.0)
   m_jugo = solidos_totales / (brix_in / 100.0)
 
-  # Cálculo de Fruta Fresca Requerida
+  # Extracción
   m_fruta = m_jugo / (1.0 - (pct_bag / 100.0))
   m_bagazo = m_fruta * (pct_bag / 100.0)
 
   brix_jugo = brix_in
   m_agua_total_evaporada = m_jugo - m_prod_final
 
+  # Divisor
   m_bypass = m_jugo * (pct_bp / 100.0)
   m_evap1_in = m_jugo - m_bypass
 
-  m_vap1 = m_agua_total_evaporada * 0.55
-  m_vap2 = m_agua_total_evaporada * 0.45
+  # Evaporación Configurable
+  pct_evap2 = 100.0 - pct_evap1
+  m_vap1 = m_agua_total_evaporada * (pct_evap1 / 100.0)
+  m_vap2 = m_agua_total_evaporada * (pct_evap2 / 100.0)
 
   m_evap1_out = m_evap1_in - m_vap1
   brix_evap1_out = (
@@ -162,6 +208,7 @@ def ejecutar_balance_desde_producto(
 
   df_resultados = pd.DataFrame(filas_tabla)
 
+  # Balances energéticos
   h_in_e1 = calcular_cp(brix_jugo) * T_in
   h_out_e1 = calcular_cp(brix_evap1_out) * T_evap
   h_v1 = (cp_agua * T_evap) + lambda_vap
@@ -185,7 +232,7 @@ def ejecutar_balance_desde_producto(
   return df_resultados, res_energia
 
 
-def generar_diagrama_detallado(res, pct_bp):
+def generar_diagrama_detallado(res, pct_bp, pct_e1):
   c = res["corrientes"]
   dot = graphviz.Digraph(comment="PFD Detallado", format="png")
   dot.attr(
@@ -206,14 +253,14 @@ def generar_diagrama_detallado(res, pct_bp):
       fontsize="10",
   )
   dot.node("MOLINO", "MOLINO Y PRENSA\n(Sep. Mecánica / Isotérmico)")
-  dot.node("EVAP1", "EVAPORADOR 1\n(Calentamiento / No Adiabático)")
+  dot.node("EVAP1", f"EVAPORADOR 1\n(Carga: {pct_e1}%)")
   dot.node(
       "SPLIT",
       "DESVÍO\n(Divisor Adiabático)",
       fillcolor="#2b6cb0",
       shape="diamond",
   )
-  dot.node("EVAP2", "EVAPORADOR 2\n(Calentamiento / No Adiabático)")
+  dot.node("EVAP2", f"EVAPORADOR 2\n(Carga: {100.0 - pct_e1:.1f}%)")
   dot.node("MEZCLA", "MEZCLADOR FINAL\n(Mezclado Adiabático)")
 
   dot.attr(
@@ -327,23 +374,20 @@ def generar_diagrama_detallado(res, pct_bp):
   return dot
 
 
-# --- 2. BARRA LATERAL (CONTROLES) ---
-st.sidebar.header("⚙️ Requerimiento de Producción")
-w_m_out = st.sidebar.number_input(
-    "Producto Final Deseado (kg/h):", value=4500.0, step=500.0
-)
-w_bin = st.sidebar.number_input("Brix Fruta Fresca:", value=12.0, step=0.5)
-w_bout = st.sidebar.number_input("Brix Objetivo Final:", value=60.0, step=1.0)
-w_bp = st.sidebar.number_input("% Bypass:", value=30.0, step=5.0)
-w_bag = st.sidebar.number_input("% Bagazo:", value=10.0, step=1.0)
-
-# --- 3. RENDERING ---
-df, res = ejecutar_balance_desde_producto(
-    w_m_out, w_bin, w_bout, w_bp, w_bag
+# --- RENDERING PRINCIPAL ---
+df, res = ejecutar_balance_avanzado(
+    w_m_out,
+    w_bin,
+    w_bout,
+    w_bp,
+    w_bag,
+    w_T_evap,
+    dist_evap1,
+    lambda_vap_custom,
 )
 
 col1, col2, col3 = st.columns(3)
-col1.metric("Fruta Fresca Necesaria", f"{res['Fruta_Requerida']:,.1f} kg/h")
+col1.metric("Fruta Fresca Requerida", f"{res['Fruta_Requerida']:,.1f} kg/h")
 col2.metric("Carga Térmica Total (Q)", f"{res['Q_Total']:,.0f} kJ/h")
 col3.metric("Consumo Vapor Caldera", f"{res['Vapor_Caldera']:,.1f} kg/h")
 
@@ -351,5 +395,5 @@ st.subheader("📋 Tabla de Auditoría de Materia, Energía y Procesos")
 st.dataframe(df, use_container_width=True)
 
 st.subheader("🗺️ Diagrama de Flujo de Proceso (PFD)")
-figura = generar_diagrama_detallado(res, w_bp)
+figura = generar_diagrama_detallado(res, w_bp, dist_evap1)
 st.graphviz_chart(figura, use_container_width=True)
