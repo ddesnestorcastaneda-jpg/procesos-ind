@@ -12,7 +12,7 @@ st.markdown(
     " Operación Configurables."
 )
 
-# --- BARRA LATERAL: CONFIGURACIÓN POR ETAPAS ---
+# --- 1. BARRA LATERAL: CONFIGURACIÓN POR ETAPAS ---
 st.sidebar.header("🎯 1. Meta de Producción")
 w_m_out = st.sidebar.number_input(
     "Producto Final Deseado (kg/h):", value=4500.0, step=500.0
@@ -50,7 +50,7 @@ lambda_vap_custom = st.sidebar.number_input(
 )
 
 
-# --- LÓGICA DE CÁLCULO CONFIGURABLE ---
+# --- 2. LÓGICA DE CÁLCULO CONFIGURABLE ---
 def ejecutar_balance_avanzado(
     m_prod_final,
     brix_in,
@@ -232,6 +232,7 @@ def ejecutar_balance_avanzado(
   return df_resultados, res_energia
 
 
+# --- 3. GENERADOR DE DIAGRAMA GRAPHVIZ ---
 def generar_diagrama_detallado(res, pct_bp, pct_e1):
   c = res["corrientes"]
   dot = graphviz.Digraph(comment="PFD Detallado", format="png")
@@ -273,12 +274,16 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
       fontsize="8.5",
   )
 
+  # Formateador con desglose de Flujo Másico Líquido (Agua) y Sólido
   def fmt_lbl(nombre_corr):
     d = c[nombre_corr]
+    m_solidos = d["m"] * (d["brix"] / 100.0)
+    m_liquido = d["m"] - m_solidos
     return (
-        f" m: {d['m']:,.1f} kg/h | T: {d['T']:.0f}°C\n"
-        f" Proc: {d['tipo_proc']}\n"
-        f" H: {d['H']:,.0f} kJ/h"
+        f" Total: {d['m']:,.1f} kg/h\n"
+        f" 💧 Liq (Agua): {m_liquido:,.1f} kg/h\n"
+        f" 🧊 Sólidos: {m_solidos:,.1f} kg/h\n"
+        f" T: {d['T']:.0f}°C | H: {d['H']:,.0f} kJ/h"
     )
 
   dot.node(
@@ -328,15 +333,18 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
   )
   dot.edge("MEZCLA", "OUT", color="#2f855a", penwidth="2.5")
 
+  # Nodos de Vapor (Solo tienen flujo líquido/agua evaporada)
   dot.node(
       "VAP1",
-      f"VAPOR GENERADO 1\n{fmt_lbl('Vapor Evap 1')}",
+      f"VAPOR GENERADO 1\n 💧 Vapor: {c['Vapor Evap 1']['m']:,.1f} kg/h\n 🧊"
+      " Sólidos: 0.0 kg/h",
       fillcolor="#e2e8f0",
       shape="note",
   )
   dot.node(
       "VAP2",
-      f"VAPOR GENERADO 2\n{fmt_lbl('Vapor Evap 2')}",
+      f"VAPOR GENERADO 2\n 💧 Vapor: {c['Vapor Evap 2']['m']:,.1f} kg/h\n 🧊"
+      " Sólidos: 0.0 kg/h",
       fillcolor="#e2e8f0",
       shape="note",
   )
@@ -374,7 +382,7 @@ def generar_diagrama_detallado(res, pct_bp, pct_e1):
   return dot
 
 
-# --- RENDERING PRINCIPAL ---
+# --- 4. RENDERING PRINCIPAL ---
 df, res = ejecutar_balance_avanzado(
     w_m_out,
     w_bin,
